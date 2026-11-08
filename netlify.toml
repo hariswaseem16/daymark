@@ -10,4 +10,4 @@
   node_bundler = "esbuild"
 
 [functions."dispatch-push"]
-  schedule = "*/5 * * * *"
+  schedule = "* * * * *"
