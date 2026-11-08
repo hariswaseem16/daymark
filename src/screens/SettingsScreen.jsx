@@ -30,7 +30,6 @@ export default function SettingsScreen({ settings, permission, nativeNotificatio
       return;
     }
     try {
-      if (settings.notificationsEnabled) await onToggleNotifications();
       await onSettingsChange({
         pushServerUrl: pushServerUrl.trim(),
         pushApiToken: pushApiToken.trim(),
