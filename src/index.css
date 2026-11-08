@@ -1,0 +1,65 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #302d35;
+  background: #f7f6f4;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-optical-sizing: auto;
+  --page: #f7f6f4;
+  --surface: #fff;
+  --surface-soft: #fbfaf9;
+  --ink: #302d35;
+  --ink-strong: #29262f;
+  --muted: #9c98a1;
+  --muted-dark: #77727d;
+  --line: #efedeb;
+  --line-strong: #e8e5e2;
+  --plum: #765a9a;
+  --plum-deep: #594474;
+  --plum-pale: #f2eef7;
+  --sage: #6ca88c;
+  --rose: #ce797d;
+  --gold: #c69b58;
+  --shadow-card: 0 2px 6px rgba(49, 39, 55, .025), 0 14px 40px rgba(49, 39, 55, .035);
+  --font-display: Georgia, "Times New Roman", serif;
+  color-scheme: light;
+  font-size: 13px;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #19171d;
+  --surface: #211f26;
+  --surface-soft: #26232b;
+  --ink: #e4dfe8;
+  --ink-strong: #f2eef6;
+  --muted: #89838f;
+  --muted-dark: #aba5b1;
+  --line: #322e37;
+  --line-strong: #39343f;
+  --plum: #b69bd6;
+  --plum-deep: #9e81c3;
+  --plum-pale: #30283a;
+  --sage: #81b9a0;
+  --rose: #da9296;
+  --gold: #d3ac69;
+  --shadow-card: 0 2px 6px rgba(0, 0, 0, .14), 0 14px 40px rgba(0, 0, 0, .10);
+}
+
+* { box-sizing: border-box; }
+html { min-width: 320px; min-height: 100%; background: var(--page); scroll-behavior: smooth; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--page); color: var(--ink); }
+body, button, input, select, textarea { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, input, select, textarea { font-size: inherit; }
+button { color: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--plum) 32%, transparent); outline-offset: 2px;
+}
+button:disabled { opacity: .58; cursor: not-allowed; }
+::selection { color: var(--ink-strong); background: color-mix(in srgb, var(--plum) 24%, white); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

@@ -1,0 +1,14 @@
+{
+  "appId": "com.daymark.personal",
+  "appName": "Daymark",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "automatic"
+  },
+  "plugins": {
+    "CapacitorSQLite": {
+      "iosDatabaseLocation": "Library/CapacitorDatabase",
+      "iosIsEncryption": false
+    }
+  }
+}
