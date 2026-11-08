@@ -8,6 +8,7 @@ export default function SettingsScreen({ settings, permission, nativeNotificatio
   const [pushFeedback, setPushFeedback] = useState("");
   const [pushServerUrl, setPushServerUrl] = useState(settings.pushServerUrl || "");
   const [pushVapidPublicKey, setPushVapidPublicKey] = useState(settings.pushVapidPublicKey || "");
+  const [nameDraft, setNameDraft] = useState(settings.name);
 
   const handleExport = async () => {
     setBackupBusy(true);
@@ -61,6 +62,7 @@ export default function SettingsScreen({ settings, permission, nativeNotificatio
         <div className="theme-choices" role="group" aria-label="Color theme">
           {[["light", Sun, "Light"], ["dark", Moon, "Dark"], ["system", RotateCcw, "System"]].map(([value, Icon, label]) => <button key={value} className={`theme-option ${settings.theme === value ? "selected" : ""}`} onClick={() => onSettingsChange({ theme: value })}><Icon size={16} /><span>{label}</span>{settings.theme === value && <i />}</button>)}
         </div>
+        <div className="setting-row setting-name-row"><div><strong>Your name</strong><span>Shown in your greeting.</span></div><input className="setting-name" type="text" maxLength={40} autoComplete="given-name" value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} /><button className="button button-quiet save-name-button" disabled={!nameDraft.trim() || nameDraft.trim() === settings.name} onClick={() => onSettingsChange({ name: nameDraft.trim() })}>Save</button></div>
       </section>
 
       <section className="settings-card"><div className="settings-section-head"><div className="settings-illustration notification-illustration"><Bell size={18} /></div><div><h3>Little nudges</h3><p>{notificationText}</p></div></div>

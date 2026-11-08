@@ -317,18 +317,19 @@ function App() {
 
   const [eyebrow, title] = pageNames[page];
   const todayKey = toDateKey(clock);
+  const displayName = data.settings.name.trim() || "there";
   const openCount = data.reminders.filter((reminder) => !reminder.completed && reminder.date >= todayKey).length;
   const currentLabel = navigation.find((item) => item.id === page)?.label || "Settings";
   const switchPage = (nextPage) => { setPage(nextPage); window.scrollTo({ top: 0, behavior: "smooth" }); };
   const onSnooze = snooze;
   const renderPage = () => {
     const common = { reminders: data.reminders, categories: data.categories, onComplete: completeReminder, onEdit: openEdit, onDelete: deleteReminder, onSnooze };
-    if (page === "home") return <Dashboard {...common} onAdd={handleAdd} greeting={greetingFor(clock.getHours())} clock={clock.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} now={clock} />;
+    if (page === "home") return <Dashboard {...common} onAdd={handleAdd} greeting={greetingFor(clock.getHours())} name={displayName} clock={clock.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })} now={clock} />;
     if (page === "calendar") return <CalendarScreen {...common} settings={data.settings} onAdd={handleAdd} now={clock} />;
     if (page === "reminders") return <RemindersScreen {...common} onAdd={handleAdd} />;
     if (page === "lists") return <ListsScreen {...common} onAdd={openAdd} onCategoryAdd={addCategory} onCategoryDelete={deleteCategory} />;
     if (page === "insights") return <InsightsScreen reminders={data.reminders} completions={data.completions || []} now={clock} />;
-    return <SettingsScreen key={JSON.stringify([data.settings.pushServerUrl, data.settings.pushVapidPublicKey])} settings={data.settings} permission={permission} nativeNotifications={isNativeNotificationPlatform()} pushSyncError={pushSyncError} onSettingsChange={updateSettings} onEnableNotifications={scheduleAfterPermission} onToggleNotifications={disableNotifications} onExport={handleExport} onImport={handleImport} onReset={handleReset} onViewLists={() => switchPage("lists")} />;
+    return <SettingsScreen key={JSON.stringify([data.settings.pushServerUrl, data.settings.pushVapidPublicKey, data.settings.name])} settings={data.settings} permission={permission} nativeNotifications={isNativeNotificationPlatform()} pushSyncError={pushSyncError} onSettingsChange={updateSettings} onEnableNotifications={scheduleAfterPermission} onToggleNotifications={disableNotifications} onExport={handleExport} onImport={handleImport} onReset={handleReset} onViewLists={() => switchPage("lists")} />;
   };
 
   return (
@@ -342,7 +343,7 @@ function App() {
           <span className="nav-section-label preferences-label">A LITTLE EXTRA</span>
           <button className={`nav-item ${page === "settings" ? "active" : ""}`} onClick={() => switchPage("settings")}><Settings2 size={17} strokeWidth={1.8} /><span>Settings</span></button>
         </nav>
-        <div className="sidebar-bottom"><div className="sidebar-note"><span className="note-star"><Sparkles size={15} /></span><p>Make room for what matters.</p><span>One thing at a time.</span></div><button className="profile-button" onClick={() => switchPage("settings")}><span className="profile-avatar">H</span><span><strong>Haris</strong><small>Just for you</small></span><ChevronDown size={15} /></button></div>
+        <div className="sidebar-bottom"><div className="sidebar-note"><span className="note-star"><Sparkles size={15} /></span><p>Make room for what matters.</p><span>One thing at a time.</span></div><button className="profile-button" onClick={() => switchPage("settings")}><span className="profile-avatar">{displayName[0].toUpperCase()}</span><span><strong>{displayName}</strong><small>Just for you</small></span><ChevronDown size={15} /></button></div>
       </aside>
 
       <main className="main-panel">

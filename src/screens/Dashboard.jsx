@@ -3,7 +3,7 @@ import { ArrowDownRight, ArrowUpRight, CalendarDays, Check, ChevronRight, Clock3
 import ReminderRow from "../components/ReminderRow";
 import { fromDateKey, getOccurrences, getReminderInstancesForDate, isOverdue, toDateKey } from "../utils/dates";
 
-export default function Dashboard({ reminders, completions = [], categories, onAdd, onComplete, onEdit, onDelete, onSnooze, greeting, clock, now }) {
+export default function Dashboard({ reminders, completions = [], categories, onAdd, onComplete, onEdit, onDelete, onSnooze, greeting, name, clock, now }) {
   const todayKey = toDateKey(now);
   const todayReminders = useMemo(() => reminders.flatMap((reminder) => getReminderInstancesForDate(reminder, todayKey))
     .sort((a, b) => a.time.localeCompare(b.time)), [reminders, todayKey]);
@@ -39,7 +39,7 @@ export default function Dashboard({ reminders, completions = [], categories, onA
   return (
     <div className="page-content dashboard-page">
       <section className="welcome-strip">
-        <div><span className="eyebrow">{dateTitle}</span><h2>{greeting}, Haris<span className="greeting-dot">.</span></h2><p>A little progress is still progress.</p></div>
+        <div><span className="eyebrow">{dateTitle}</span><h2>{greeting}, {name}<span className="greeting-dot">.</span></h2><p>A little progress is still progress.</p></div>
         <div className="live-time"><Clock3 size={15} /><span>{clock}</span></div>
       </section>
 

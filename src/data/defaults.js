@@ -28,6 +28,7 @@ export const starterReminders = [
 ];
 
 export const defaultSettings = {
+  name: "Haris",
   theme: "system",
   defaultTime: "09:00",
   weekStartsOn: 0,

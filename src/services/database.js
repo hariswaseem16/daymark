@@ -197,6 +197,7 @@ export async function importDatabase(data) {
     && Array.isArray(reminder.weekdays) && reminder.weekdays.every((day) => Number.isInteger(day) && day >= 0 && day <= 6)
     && typeof reminder.completed === "boolean");
   const validSettings = ["system", "light", "dark"].includes(data.settings.theme)
+    && (data.settings.name === undefined || (typeof data.settings.name === "string" && data.settings.name.length <= 40))
     && validTime(data.settings.defaultTime)
     && [0, 1, 6].includes(Number(data.settings.weekStartsOn))
     && typeof data.settings.notificationsEnabled === "boolean"
