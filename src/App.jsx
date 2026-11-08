@@ -11,8 +11,9 @@ import RemindersScreen from "./screens/RemindersScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import ReminderModal from "./components/ReminderModal";
 import { clearDatabase, exportDatabase, importDatabase, initializeDatabase, saveDatabase } from "./services/database";
-import { addNotificationListener, getNotificationPermission, isNativeNotificationPlatform, registerNotificationActions, requestNotificationPermission, snoozeReminder, subscribeToWebPush, syncNotifications, triggerHaptic } from "./services/notifications";
+import { addNotificationListener, getNotificationPermission, isNativeNotificationPlatform, registerNotificationActions, requestNotificationPermission, subscribeToWebPush, syncNotifications, triggerHaptic } from "./services/notifications";
 import { fromDateKey, getOccurrences, toDateKey } from "./utils/dates";
+import { createSnoozeEntry } from "./utils/snooze";
 
 const navigation = [
   { id: "home", label: "Today", icon: LayoutDashboard },
@@ -67,7 +68,7 @@ function App() {
       setData(initialData);
       if (initialData.settings.notificationsEnabled) {
         registerNotificationActions()
-          .then(() => syncNotifications(initialData.reminders, initialData.settings))
+          .then(() => syncNotifications(initialData.reminders, initialData.settings, initialData.snoozes || []))
           .then((result) => { if (active) setPushSyncError(webPushNeedsAttention(result, initialData.settings)); })
           .catch((error) => {
             if (active) {
@@ -91,7 +92,7 @@ function App() {
     let schedulingResult = { scheduled: 0 };
     if (nextData.settings.notificationsEnabled) {
       try {
-        schedulingResult = await syncNotifications(nextData.reminders, nextData.settings);
+        schedulingResult = await syncNotifications(nextData.reminders, nextData.settings, nextData.snoozes || []);
         setPushSyncError(webPushNeedsAttention(schedulingResult, nextData.settings));
         if (schedulingResult.capped) notify("Your iPhone can hold up to 60 scheduled reminders at once.");
       } catch (error) {
@@ -134,7 +135,12 @@ function App() {
       ...(data.completions || []),
       { id: crypto.randomUUID(), reminderId: reminder.id, categoryId: reminder.categoryId, completedAt },
     ];
-    await commit({ ...data, reminders, completions });
+    await commit({
+      ...data,
+      reminders,
+      completions,
+      snoozes: (data.snoozes || []).filter((snooze) => snooze.reminderId !== reminder.id),
+    });
     if (data.settings.hapticsEnabled) {
       triggerHaptic(true).catch((error) => notify(`Reminder saved, but haptic feedback failed: ${error.message}`));
     }
@@ -142,24 +148,38 @@ function App() {
 
   const deleteReminder = useCallback(async (reminder) => {
     if (!data || !window.confirm(`Delete “${reminder.title}”? This can’t be undone.`)) return;
-    await commit({ ...data, reminders: data.reminders.filter((item) => item.id !== reminder.id) });
+    await commit({
+      ...data,
+      reminders: data.reminders.filter((item) => item.id !== reminder.id),
+      snoozes: (data.snoozes || []).filter((snooze) => snooze.reminderId !== reminder.id),
+    });
     notify("Reminder deleted.");
   }, [commit, data, notify]);
 
-  const snooze = useCallback(async (reminder) => {
+  const snooze = useCallback(async (reminder, sourceSnoozeId) => {
+    if (!data) return;
     try {
-      const snoozed = await snoozeReminder(reminder, 10, data?.settings);
-      if (!snoozed && permission !== "granted") {
-        notify("Allow notifications before snoozing this reminder.");
-      } else if (!snoozed) {
-        notify("Snooze is available after Web Push is connected to your push server.");
+      const snoozeEntry = createSnoozeEntry(reminder, 10);
+      const currentTime = Date.now();
+      const snoozes = (data.snoozes || []).filter((item) => item.id !== sourceSnoozeId
+        && Date.parse(item.scheduledAt) > currentTime);
+      const result = await commit({ ...data, snoozes: [...snoozes, snoozeEntry] });
+      if (result.error) {
+        notify(`Snooze saved in Daymark, but notification scheduling failed: ${result.error.message}`);
+      } else if (!data.settings.notificationsEnabled) {
+        notify("Snoozed in Daymark. Enable notifications to receive it at the snooze time.");
+      } else if (isNativeNotificationPlatform() && result.permission && result.permission !== "granted") {
+        notify("Snoozed in Daymark. Allow iPhone notifications to receive it at the snooze time.");
+      } else if (!isNativeNotificationPlatform()
+        && (result.unavailable || result.configured === false || result.subscriptionRequired || result.permission !== "granted")) {
+        notify("Snoozed in Daymark, but background delivery is unavailable until Web Push is configured and enabled.");
       } else {
         notify("Snoozed for 10 minutes.");
       }
     } catch (error) {
       notify(`Couldn't snooze this reminder: ${error.message}`);
     }
-  }, [data, notify, permission]);
+  }, [commit, data, notify]);
 
   const scheduleAfterPermission = useCallback(async () => {
     try {
@@ -218,7 +238,7 @@ function App() {
       const { actionId, notification } = event;
       const reminder = actionsRef.current.data?.reminders.find((item) => item.id === notification.extra?.reminderId);
       if (!reminder) return;
-      if (actionId === "snooze") await actionsRef.current.snooze(reminder);
+      if (actionId === "snooze") await actionsRef.current.snooze(reminder, notification.extra?.snoozeId);
       if (actionId === "done") await actionsRef.current.completeReminder(reminder);
     });
     return () => removeActionListener();
@@ -228,7 +248,7 @@ function App() {
     const refresh = () => {
       const currentData = actionsRef.current.data;
       if (document.visibilityState === "visible" && currentData?.settings.notificationsEnabled) {
-        syncNotifications(currentData.reminders, currentData.settings).catch((error) => notify(`Could not refresh notifications: ${error.message}`));
+        syncNotifications(currentData.reminders, currentData.settings, currentData.snoozes || []).catch((error) => notify(`Could not refresh notifications: ${error.message}`));
       }
     };
     document.addEventListener("visibilitychange", refresh);
@@ -276,9 +296,9 @@ function App() {
     const previousSettings = data.settings;
     const restored = await importDatabase(parsed);
     setData(restored);
-    if (restored.settings.notificationsEnabled) await syncNotifications(restored.reminders, restored.settings);
+    if (restored.settings.notificationsEnabled) await syncNotifications(restored.reminders, restored.settings, restored.snoozes || []);
     else if (!isNativeNotificationPlatform()) {
-      await syncNotifications([], { ...previousSettings, notificationsEnabled: false });
+      await syncNotifications([], { ...previousSettings, notificationsEnabled: false }, []);
     }
   };
   const handleExport = async () => {
@@ -300,7 +320,7 @@ function App() {
       setData(empty);
       let message = "Daymark has a fresh start.";
       try {
-        await syncNotifications([], { ...data.settings, notificationsEnabled: false });
+        await syncNotifications([], { ...data.settings, notificationsEnabled: false }, []);
       } catch (error) {
         message = `Daymark was reset, but notifications could not be cleared from the server: ${error.message}`;
       }
@@ -329,7 +349,7 @@ function App() {
     if (page === "reminders") return <RemindersScreen {...common} onAdd={handleAdd} />;
     if (page === "lists") return <ListsScreen {...common} onAdd={openAdd} onCategoryAdd={addCategory} onCategoryDelete={deleteCategory} />;
     if (page === "insights") return <InsightsScreen reminders={data.reminders} completions={data.completions || []} now={clock} />;
-    return <SettingsScreen key={JSON.stringify([data.settings.pushServerUrl, data.settings.pushVapidPublicKey, data.settings.name])} settings={data.settings} permission={permission} nativeNotifications={isNativeNotificationPlatform()} pushSyncError={pushSyncError} onSettingsChange={updateSettings} onEnableNotifications={scheduleAfterPermission} onToggleNotifications={disableNotifications} onExport={handleExport} onImport={handleImport} onReset={handleReset} onViewLists={() => switchPage("lists")} />;
+    return <SettingsScreen key={JSON.stringify([data.settings.pushServerUrl, data.settings.pushApiToken, data.settings.name])} settings={data.settings} permission={permission} nativeNotifications={isNativeNotificationPlatform()} pushSyncError={pushSyncError} onSettingsChange={updateSettings} onEnableNotifications={scheduleAfterPermission} onToggleNotifications={disableNotifications} onExport={handleExport} onImport={handleImport} onReset={handleReset} onViewLists={() => switchPage("lists")} />;
   };
 
   return (

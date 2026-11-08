@@ -33,8 +33,8 @@ src/
 
 ### Persistence and notification notes
 
-- On a native iPhone build, reminders, lists, settings, completion history and the scheduled-notification index are stored in the `daymark` SQLite database. Preferences also stores the small settings object. Database changes are written transactionally. Native backups are shared using the iOS share sheet.
-- In a browser or installed PWA, reminders and settings use IndexedDB. Existing browser data in `daymark.local.v1` is migrated the first time the IndexedDB store is opened.
+- On a native iPhone build, reminders, lists, settings, completion history, snoozes and the scheduled-notification index are stored in the `daymark` SQLite database. Preferences also stores the small settings object. Database changes are written transactionally. Native backups are shared using the iOS share sheet.
+- In a browser or installed PWA, reminders, snoozes and settings use IndexedDB. Existing browser data in `daymark.local.v1` is migrated the first time the IndexedDB store is opened.
 - The PWA caches its built app shell for offline reopening after its first successful online load. PWA browser reminders do **not** use native SQLite or pretend to provide local background scheduling.
 - iOS keeps already scheduled local notifications when the app is closed and across device restarts. On launch and when the app returns to the foreground, Daymark reconciles pending notifications against SQLite and the device's current local timezone.
 - Daily, weekly and monthly repeats use native repeating triggers; selected weekdays use native weekly triggers. Other custom intervals are expanded into one-shot notifications for the next 45 days and refreshed when the app opens. iOS allows a limited number of pending notifications; Daymark schedules at most 60 to leave headroom and prioritizes the nearest reminders. A custom-interval series therefore needs the app to be opened occasionally to keep its future queue refreshed.
@@ -55,21 +55,42 @@ Publish the contents of `dist/` to any static HTTPS host. For free GitHub Pages 
 
 On iPhone, open the deployed HTTPS address in **Safari**, tap **Share → Add to Home Screen → Add**, then launch Daymark from its Home Screen icon. The first online load downloads the app shell; after that, the UI and IndexedDB data can be reopened offline. Safari must be used for installation.
 
-### Optional Web Push setup
+### Web Push on Netlify
 
-The PWA includes a Web Push client, but Daymark does not bundle or configure a push sender. Until you operate a compatible HTTPS sender and verify delivery on a real device, do not rely on background reminders. iPhone Web Push requires iOS/iPadOS 16.4 or later and the installed Home Screen web app; permission must be granted. A static host such as GitHub Pages cannot send pushes by itself.
+The repository includes Netlify Functions for authenticated subscription/schedule sync and push delivery, with Netlify Blobs for persistent schedules. Deploy the site to Netlify to use these functions; GitHub Pages and other static-only hosts do not run them. Keep the VAPID private key and API bearer token in Netlify environment variables and never commit them to source code. The API token is also entered into this device's Daymark settings.
 
-To connect a sender, enter its HTTPS POST URL and **VAPID public key** in Settings. Never put the VAPID private key in Daymark. Reminder titles, descriptions and scheduled times are sent to the configured endpoint, so only use a server you control and trust. The endpoint must allow the PWA origin through CORS and implement these JSON operations:
+1. Generate a VAPID key pair locally (the private key is printed only to your terminal):
 
-- `{"action":"sync","subscription":...,"timeZone":"...","reminders":[...]}` — replace/update pending deliveries for the subscription and return `{"ok":true,"scheduled":N}`. Each reminder occurrence has an `id`, `reminderId`, `title`, `body`, and ISO-8601 `scheduledAt`. Daymark sends upcoming occurrences for the next 45 days when opened or brought to the foreground.
-- `{"action":"unsubscribe","subscription":...}` — cancel server-side deliveries and return `{"ok":true}`.
-- `{"action":"snooze","subscription":...,"reminderId":"...","minutes":10,"timeZone":"..."}` — enqueue a snoozed delivery and return `{"ok":true}`.
+   ```powershell
+   cd "D:\React projects\daymark"
+   node --input-type=module -e "import webpush from 'web-push'; console.log(JSON.stringify(webpush.generateVAPIDKeys(), null, 2))"
+   ```
 
-The sender must store subscriptions, schedule pushes at the supplied times, send valid Web Push payloads (`title`, `body`, and optionally `url`/`id`), remove expired subscriptions, handle CORS preflights, and keep its VAPID private key server-side. It must also reconcile/cancel previously queued occurrences when handling `sync`. Since the browser refreshes the 45-day horizon only when the app runs, recurring reminders beyond that window require the app to be opened periodically, unless your sender independently implements recurrence. Web Push requires an internet connection and cannot provide offline delivery. Test permission denial, server failure, lock-screen delivery, app termination, snooze, rescheduling, timezone changes, and recurrence on the actual installed iPhone PWA before relying on it.
+2. Generate a separate API token:
+
+   ```powershell
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
+   ```
+
+3. In **Netlify → Site configuration → Environment variables**, set:
+   - `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` to the generated pair.
+   - `VAPID_SUBJECT` to a contact URI such as `mailto:you@example.com`.
+   - `PUSH_API_TOKEN` to the generated API token.
+   - `PUSH_ALLOWED_ORIGIN` to the exact deployed Daymark origin, for example `https://daymark-by-haris.netlify.app` (no trailing slash).
+   - `PUSH_APP_URL` to the deployed Daymark URL.
+
+4. Deploy the repository to Netlify with the included `netlify.toml` (build command `yarn build`, publish directory `dist`). The scheduled function checks for due reminders every five minutes. Netlify Blobs is provisioned by the function at runtime; it stores subscription data, recurrence rules and pending delivery records.
+5. In Daymark Settings → Little nudges, use the default `/.netlify/functions/push-api` URL for the same Netlify site, paste the `PUSH_API_TOKEN`, save, and enable Web Push. The VAPID public key is fetched from the server; do not enter either VAPID key in Daymark.
+
+The API token is stored with this device's local Daymark settings and is omitted from exported backups. Rotate it in Netlify and update Daymark if it is exposed. Reminder titles, descriptions, schedule rules, timezone and the browser's push subscription are sent to your Netlify site. Netlify's Free plan currently advertises 300 monthly credits; Blobs reads/writes and scheduled/function execution are subject to plan quotas and credit usage, and pricing can change. A five-minute schedule invokes the dispatcher about 8,640 times per 30-day month, before normal API use; check Netlify's current pricing and usage dashboard, and do not assume ongoing delivery will stay within a free allowance. Scheduled function execution is time-limited (currently 30 seconds), and push timing may be delayed by the five-minute polling interval, provider TTL and device connectivity.
+
+The dispatcher converts recurring local wall times using the submitted IANA timezone and sends UTC instants without applying the offset again. During daylight-saving gaps it uses the next valid local time; during an ambiguous repeated time it uses the earlier instant. A timezone change is learned when the PWA next runs and syncs; the server cannot detect a device change while the PWA is closed. Snoozes are separate persisted one-shot events, so the original reminder and recurrence rule are not modified. If Web Push is unavailable or not configured, snoozing is saved locally but cannot generate a closed-app browser notification.
+
+iPhone Web Push requires iOS/iPadOS 16.4 or later, a Home Screen-installed PWA, HTTPS, and granted notification permission. iOS 15 remains usable for Daymark's UI, IndexedDB and in-app reminder management, but does not support Web Push delivery while closed. Web Push also requires connectivity; Netlify's five-minute polling, device connectivity, browser/OS delivery policies and provider TTL make timing best-effort, not exact or guaranteed. Test lock-screen delivery, app termination, permission denial, expiry, recurrence, timezone changes, snoozing and server outages on an installed iOS 16.4+ device before relying on it. Native Capacitor local notifications are unchanged.
 
 ## Develop on Windows
 
-Install Node.js LTS and Yarn Classic (the project lockfile is `yarn.lock`). In PowerShell:
+Install Node.js 22.12.0 or newer and Yarn Classic (the project lockfile is `yarn.lock`; Netlify Blobs requires Node 22.12+). In PowerShell:
 
 ```powershell
 cd "D:\React projects\daymark"

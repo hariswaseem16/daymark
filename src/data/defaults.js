@@ -37,4 +37,5 @@ export const defaultSettings = {
   hapticsEnabled: true,
   pushServerUrl: "",
   pushVapidPublicKey: "",
+  pushApiToken: "",
 };

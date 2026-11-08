@@ -19,9 +19,12 @@
     "@capacitor/local-notifications": "^7",
     "@capacitor/preferences": "^7",
     "@capacitor/share": "^7",
+    "@js-temporal/polyfill": "^0.5.1",
+    "@netlify/blobs": "^11.1.8",
     "lucide-react": "^1.70.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "web-push": "^4.0.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^7",

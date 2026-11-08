@@ -24,12 +24,9 @@ function webPushAvailability() {
 }
 
 function getPushServerUrl(settings) {
-  if (!settings.pushServerUrl || !settings.pushVapidPublicKey) {
-    throw new Error("Enter your HTTPS push-server URL and VAPID public key in Settings first.");
-  }
   let url;
   try {
-    url = new URL(settings.pushServerUrl);
+    url = new URL(settings.pushServerUrl || "/.netlify/functions/push-api", window.location.origin);
   } catch {
     throw new Error("The push-server URL is not valid.");
   }
@@ -38,6 +35,26 @@ function getPushServerUrl(settings) {
     throw new Error("The push-server URL must use HTTPS (HTTP is allowed only for localhost).");
   }
   return url.href;
+}
+
+function getPushApiToken(settings) {
+  const token = settings.pushApiToken?.trim();
+  if (!token) throw new Error("Enter your private push API token in Settings first.");
+  return token;
+}
+
+async function getPushServerConfig(settings) {
+  const response = await fetch(getPushServerUrl(settings), {
+    headers: { Authorization: "Bearer " + getPushApiToken(settings) },
+  });
+  const result = await response.json().catch((error) => {
+    throw new Error(`The push server returned an invalid response: ${error.message}`);
+  });
+  if (!response.ok) throw new Error(result?.error || `The push server returned HTTP ${response.status}.`);
+  if (result?.ok !== true || typeof result.vapidPublicKey !== "string" || !result.vapidPublicKey) {
+    throw new Error("The push server did not provide a valid VAPID public key.");
+  }
+  return result;
 }
 
 function decodeVapidKey(value) {
@@ -54,17 +71,22 @@ async function postPushServer(settings, body) {
   const url = getPushServerUrl(settings);
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Authorization": "Bearer " + getPushApiToken(settings),
+      "Content-Type": "application/json",
+    },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw new Error(`The push server returned HTTP ${response.status}.`);
-  }
   let result;
   try {
     result = await response.json();
   } catch (error) {
     throw new Error(`The push server returned an invalid response: ${error.message}`);
+  }
+  if (!response.ok) {
+    const requestError = new Error(result?.error || `The push server returned HTTP ${response.status}.`);
+    requestError.code = result?.code;
+    throw requestError;
   }
   if (result?.ok !== true) {
     throw new Error("The push server did not confirm the requested operation.");
@@ -77,22 +99,24 @@ async function getWebPushSubscription(settings, create = false) {
   if (create && (webPushAvailability() !== "available" || Notification.permission !== "granted")) return null;
   const registration = await navigator.serviceWorker.ready;
   const pushManager = registration.pushManager;
+  if (!pushManager || typeof pushManager.getSubscription !== "function") return null;
   let subscription = await pushManager.getSubscription();
   if (!subscription && create) {
+    const config = await getPushServerConfig(settings);
     subscription = await pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: decodeVapidKey(settings.pushVapidPublicKey),
+      applicationServerKey: decodeVapidKey(config.vapidPublicKey),
     });
   }
   return subscription;
 }
 
-async function syncWebPush(reminders, settings) {
+async function syncWebPush(reminders, settings, snoozes = []) {
   if (!settings.notificationsEnabled) {
     const subscription = await getWebPushSubscription(settings);
     if (!subscription) return { scheduled: 0, disabled: true };
     let remoteError;
-    if (settings.pushServerUrl && settings.pushVapidPublicKey) {
+    if (settings.pushApiToken) {
       try {
         await postPushServer(settings, { action: "unsubscribe", subscription });
       } catch (error) {
@@ -106,35 +130,69 @@ async function syncWebPush(reminders, settings) {
   if (webPushAvailability() !== "available") {
     return { scheduled: 0, unavailable: webPushAvailability() };
   }
-  if (!settings.pushServerUrl || !settings.pushVapidPublicKey) {
+  if (!settings.pushApiToken) {
     return { scheduled: 0, configured: false };
   }
   const subscription = await getWebPushSubscription(settings);
   if (!subscription) return { scheduled: 0, subscriptionRequired: true };
 
   const now = new Date();
-  const occurrences = reminders.flatMap((reminder) => getOccurrences(reminder, now, WEB_PUSH_DAYS_AHEAD)
+  const reminderRules = reminders.map((reminder) => ({
+    ...reminder,
+    description: reminder.description || "",
+    times: reminder.times?.length ? reminder.times : [reminder.time || "09:00"],
+    repeat: reminder.repeat || "never",
+    interval: Number(reminder.interval) || 1,
+    weekdays: reminder.weekdays || [],
+  }));
+  const occurrences = reminderRules.flatMap((reminder) => getOccurrences(reminder, now, WEB_PUSH_DAYS_AHEAD)
     .map(({ date }) => ({
       id: `${reminder.id}:${date.getTime()}`,
       reminderId: reminder.id,
       title: reminder.title,
       body: reminder.description || "A little nudge from Daymark.",
       scheduledAt: date.toISOString(),
+      kind: "reminder",
     })))
     .sort((a, b) => Date.parse(a.scheduledAt) - Date.parse(b.scheduledAt));
-  const result = await postPushServer(settings, {
+  const currentTime = now.getTime();
+  const pendingSnoozes = snoozes.filter((snooze) => Date.parse(snooze.scheduledAt) > currentTime
+    && reminders.some((reminder) => reminder.id === snooze.reminderId && !reminder.completed))
+    .map((snooze) => ({
+      id: snooze.id,
+      reminderId: snooze.reminderId,
+      title: snooze.title,
+      body: snooze.body,
+      scheduledAt: snooze.scheduledAt,
+      kind: "snooze",
+    }));
+  await getPushServerConfig(settings);
+  const scheduleRequest = {
     action: "sync",
     subscription,
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    reminders: occurrences,
-  });
+    reminderRules,
+    occurrences,
+    snoozes: pendingSnoozes,
+    soundEnabled: settings.soundEnabled !== false,
+  };
+  let result;
+  try {
+    result = await postPushServer(settings, scheduleRequest);
+  } catch (error) {
+    if (error.code !== "subscription-expired") throw error;
+    await subscription.unsubscribe();
+    const renewedSubscription = await getWebPushSubscription(settings, true);
+    if (!renewedSubscription) return { scheduled: 0, subscriptionRequired: true, expired: true };
+    result = await postPushServer(settings, { ...scheduleRequest, subscription: renewedSubscription });
+  }
   if (!Number.isInteger(result.scheduled) || result.scheduled < 0) {
     throw new Error("The push server did not confirm how many reminders it scheduled.");
   }
   return {
     scheduled: result.scheduled,
-    requested: occurrences.length,
-    incomplete: result.scheduled !== occurrences.length,
+    requested: occurrences.length + pendingSnoozes.length,
+    incomplete: result.scheduled !== occurrences.length + pendingSnoozes.length,
   };
 }
 
@@ -169,6 +227,7 @@ export async function requestNotificationPermission() {
 export async function subscribeToWebPush(settings) {
   if (Capacitor.isNativePlatform()) return null;
   getPushServerUrl(settings);
+  getPushApiToken(settings);
   if (Notification.permission !== "granted") {
     throw new Error("Allow notifications in the browser before enabling Web Push.");
   }
@@ -190,8 +249,8 @@ export async function registerNotificationActions() {
   });
 }
 
-export async function syncNotifications(reminders, settings = {}) {
-  if (!Capacitor.isNativePlatform()) return syncWebPush(reminders, settings);
+export async function syncNotifications(reminders, settings = {}, snoozes = []) {
+  if (!Capacitor.isNativePlatform()) return syncWebPush(reminders, settings, snoozes);
   const existing = await LocalNotifications.getPending();
   if (existing.notifications.length) {
     await LocalNotifications.cancel({ notifications: existing.notifications });
@@ -221,54 +280,32 @@ export async function syncNotifications(reminders, settings = {}) {
       return [...byWeekday.values()].map((date) => ({ reminder, date, every: "week" }));
     }
     return occurrences.map(({ date }) => ({ reminder, date }));
-  }).sort((a, b) => a.date - b.date).slice(0, MAX_PENDING);
+  }).sort((a, b) => a.date - b.date);
+  const snoozeSchedule = snoozes
+    .filter((snooze) => Date.parse(snooze.scheduledAt) > now.getTime()
+      && reminders.some((reminder) => reminder.id === snooze.reminderId && !reminder.completed))
+    .map((snooze) => ({ snooze, date: new Date(snooze.scheduledAt) }));
+  schedule.push(...snoozeSchedule);
+  schedule.sort((a, b) => a.date - b.date);
+  schedule.splice(MAX_PENDING);
 
   if (!schedule.length) return { scheduled: 0 };
-  const scheduledNotifications = schedule.map(({ reminder, date, every }, index) => ({
+  const scheduledNotifications = schedule.map(({ reminder, snooze, date, every }, index) => ({
       id: index + 1,
-      title: reminder.title,
-      body: reminder.description || "A little nudge from Daymark.",
+      title: reminder?.title || snooze.title,
+      body: reminder?.description || snooze?.body || "A little nudge from Daymark.",
       schedule: every ? { at: date, repeats: true, every } : { at: date },
       ...(settings.soundEnabled === false ? {} : { sound: "default" }),
       actionTypeId: ACTION_TYPE,
-      extra: { reminderId: reminder.id },
+      extra: { reminderId: reminder?.id || snooze.reminderId, ...(snooze ? { snoozeId: snooze.id } : {}) },
     }));
   const result = await LocalNotifications.schedule({ notifications: scheduledNotifications });
   await saveNotificationSchedule(result.notifications.map(({ id }, index) => ({
     notificationId: id,
-    reminderId: schedule[index].reminder.id,
+    reminderId: schedule[index].reminder?.id || schedule[index].snooze.reminderId,
     at: schedule[index].date.toISOString(),
   })));
   return { scheduled: result.notifications.length, capped: schedule.length === MAX_PENDING };
-}
-
-export async function snoozeReminder(reminder, minutes = 10, settings = {}) {
-  if (!Capacitor.isNativePlatform()) {
-    const subscription = await getWebPushSubscription(settings);
-    if (!subscription || !settings.notificationsEnabled || Notification.permission !== "granted") return false;
-    await postPushServer(settings, {
-      action: "snooze",
-      subscription,
-      reminderId: reminder.id,
-      minutes,
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    });
-    return true;
-  }
-  const permission = await getNotificationPermission();
-  if (permission !== "granted") return false;
-  await LocalNotifications.schedule({
-    notifications: [{
-      id: Date.now() % 2147483647,
-      title: reminder.title,
-      body: reminder.description || "Snoozed reminder",
-      schedule: { at: new Date(Date.now() + minutes * 60_000) },
-      ...(settings.soundEnabled === false ? {} : { sound: "default" }),
-      actionTypeId: ACTION_TYPE,
-      extra: { reminderId: reminder.id },
-    }],
-  });
-  return true;
 }
 
 export async function triggerHaptic(enabled) {

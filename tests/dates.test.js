@@ -2,10 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fromDateKey, getOccurrences, getReminderInstancesForDate, isOverdue, toDateKey } from "../src/utils/dates.js";
 
+process.env.TZ = "Asia/Karachi";
+
 test("date keys round-trip local calendar dates", () => {
   const date = new Date(2026, 6, 4, 17, 30);
   assert.equal(toDateKey(date), "2026-07-04");
   assert.equal(toDateKey(fromDateKey("2026-07-04")), "2026-07-04");
+});
+
+test("local Asia/Karachi reminder times serialize to UTC only once", () => {
+  const localReminder = new Date(2026, 0, 1, 1, 0);
+  assert.equal(localReminder.toISOString(), "2025-12-31T20:00:00.000Z");
 });
 
 test("overdue checks compare a reminder's local date and time", () => {

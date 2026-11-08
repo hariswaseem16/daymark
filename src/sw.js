@@ -22,6 +22,7 @@ self.addEventListener("push", (event) => {
     icon: "./icons/daymark-192.png",
     badge: "./icons/daymark-192.png",
     tag: payload.tag || payload.id || undefined,
+    silent: payload.silent === true,
     data: { url: payload.url || "./" },
   };
   event.waitUntil(self.registration.showNotification(title, options));

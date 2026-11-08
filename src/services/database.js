@@ -33,6 +33,10 @@ async function initializeNative() {
         CREATE TABLE IF NOT EXISTS completion_history (
           id TEXT PRIMARY KEY NOT NULL, reminderId TEXT NOT NULL, completedAt TEXT NOT NULL, categoryId TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS snoozes (
+          id TEXT PRIMARY KEY NOT NULL, reminderId TEXT NOT NULL, title TEXT NOT NULL,
+          body TEXT NOT NULL, scheduledAt TEXT NOT NULL, createdAt TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS settings (
           key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL
         );
@@ -57,7 +61,7 @@ async function nativeQuery(sql, values = []) {
 async function seedNative() {
   const rows = await nativeQuery("SELECT value FROM settings WHERE key = 'appDataInitialized'");
   if (rows.length) return;
-  await replaceNative({ reminders: starterReminders, categories: starterCategories, settings: defaultSettings });
+  await replaceNative({ reminders: starterReminders, categories: starterCategories, settings: defaultSettings, snoozes: [] });
 }
 
 async function replaceNative(data) {
@@ -66,6 +70,7 @@ async function replaceNative(data) {
     { statement: "DELETE FROM categories;" },
     { statement: "DELETE FROM settings;" },
     { statement: "DELETE FROM completion_history;" },
+    { statement: "DELETE FROM snoozes;" },
     ...data.categories.map((category) => ({
       statement: "INSERT INTO categories (id, name, color, icon) VALUES (?, ?, ?, ?)",
       values: [category.id, category.name, category.color, category.icon],
@@ -88,6 +93,10 @@ async function replaceNative(data) {
       statement: "INSERT INTO completion_history (id, reminderId, completedAt, categoryId) VALUES (?, ?, ?, ?)",
       values: [completion.id, completion.reminderId, completion.completedAt, completion.categoryId || "other"],
     })),
+    ...(data.snoozes || []).map((snooze) => ({
+      statement: "INSERT INTO snoozes (id, reminderId, title, body, scheduledAt, createdAt) VALUES (?, ?, ?, ?, ?, ?)",
+      values: [snooze.id, snooze.reminderId, snooze.title, snooze.body, snooze.scheduledAt, snooze.createdAt],
+    })),
   ];
   await connection.executeSet(statements);
   await Preferences.set({ key: "daymark.settings", value: JSON.stringify(data.settings) });
@@ -97,6 +106,7 @@ async function loadNative() {
   const reminders = await nativeQuery("SELECT * FROM reminders ORDER BY date, time");
   const categories = await nativeQuery("SELECT * FROM categories ORDER BY name");
   const completions = await nativeQuery("SELECT * FROM completion_history ORDER BY completedAt DESC");
+  const snoozes = await nativeQuery("SELECT * FROM snoozes ORDER BY scheduledAt");
   const settingRows = await nativeQuery("SELECT key, value FROM settings WHERE key != 'appDataInitialized'");
   const savedSettings = await Preferences.get({ key: "daymark.settings" });
   return {
@@ -106,6 +116,7 @@ async function loadNative() {
     })),
     categories,
     completions,
+    snoozes,
     settings: {
       ...defaultSettings,
       ...Object.fromEntries(settingRows.map(({ key, value }) => [key, JSON.parse(value)])),
@@ -118,7 +129,7 @@ export async function initializeDatabase() {
   if (!Capacitor.isNativePlatform()) {
     let data = await readBrowserData();
     if (!data) {
-      data = { reminders: starterReminders, categories: starterCategories, settings: defaultSettings, completions: [] };
+      data = { reminders: starterReminders, categories: starterCategories, settings: defaultSettings, completions: [], snoozes: [] };
       await writeBrowserData(data);
     } else {
       data = {
@@ -126,6 +137,7 @@ export async function initializeDatabase() {
         categories: data.categories || starterCategories,
         settings: { ...defaultSettings, ...data.settings },
         completions: data.completions || [],
+        snoozes: data.snoozes || [],
       };
       await writeBrowserData(data);
     }
@@ -160,7 +172,9 @@ export async function saveNotificationSchedule(notifications) {
 }
 
 export async function exportDatabase(data) {
-  const contents = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), ...data }, null, 2);
+  const settings = { ...data.settings };
+  delete settings.pushApiToken;
+  const contents = JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), ...data, settings }, null, 2);
   if (Capacitor.isNativePlatform()) {
     const path = `daymark-backup-${new Date().toISOString().slice(0, 10)}.json`;
     const file = await Filesystem.writeFile({
@@ -204,11 +218,19 @@ export async function importDatabase(data) {
     && typeof data.settings.soundEnabled === "boolean"
     && typeof data.settings.hapticsEnabled === "boolean"
     && (data.settings.pushServerUrl === undefined || typeof data.settings.pushServerUrl === "string")
-    && (data.settings.pushVapidPublicKey === undefined || typeof data.settings.pushVapidPublicKey === "string");
+    && (data.settings.pushVapidPublicKey === undefined || typeof data.settings.pushVapidPublicKey === "string")
+    && (data.settings.pushApiToken === undefined || typeof data.settings.pushApiToken === "string");
   const validCompletions = (data.completions || []).every((completion) => completion
     && typeof completion.id === "string" && typeof completion.reminderId === "string"
     && !Number.isNaN(Date.parse(completion.completedAt)));
-  if (!validCategories || !validReminders || !validSettings || !validCompletions) {
+  const reminderIds = new Set(data.reminders.map((reminder) => reminder.id));
+  const validSnoozes = (data.snoozes || []).every((snooze) => snooze
+    && typeof snooze.id === "string" && snooze.id
+    && reminderIds.has(snooze.reminderId)
+    && typeof snooze.title === "string" && typeof snooze.body === "string"
+    && !Number.isNaN(Date.parse(snooze.scheduledAt))
+    && !Number.isNaN(Date.parse(snooze.createdAt)));
+  if (!validCategories || !validReminders || !validSettings || !validCompletions || !validSnoozes) {
     throw new Error("This backup contains incomplete or invalid Daymark data.");
   }
   const restored = {
@@ -216,13 +238,14 @@ export async function importDatabase(data) {
     categories: data.categories,
     settings: { ...defaultSettings, ...data.settings },
     completions: data.completions || [],
+    snoozes: data.snoozes || [],
   };
   await saveDatabase(restored);
   return restored;
 }
 
 export async function clearDatabase() {
-  const empty = { reminders: [], categories: starterCategories, settings: defaultSettings, completions: [] };
+  const empty = { reminders: [], categories: starterCategories, settings: defaultSettings, completions: [], snoozes: [] };
   await saveDatabase(empty);
   return empty;
 }
