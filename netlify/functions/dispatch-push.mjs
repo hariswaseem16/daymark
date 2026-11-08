@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Temporal } from "@js-temporal/polyfill";
 import * as webpush from "web-push";
 import {
+  EVENT_EXPIRY_MS,
   getPushStore,
   getReminderEvents,
   expiredSubscriptionKey,
@@ -12,7 +13,6 @@ import {
 } from "./push-core.mjs";
 
 const CLAIM_DURATION_MS = 2 * 60_000;
-const EVENT_EXPIRY_MS = 2 * 60 * 60_000;
 
 function vapidConfigured() {
   return Boolean(process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY && process.env.VAPID_SUBJECT);

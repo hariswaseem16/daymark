@@ -99,6 +99,79 @@ test("server schedule stores recurring occurrences and snoozes without changing 
   assert.deepEqual(reminder, original);
 });
 
+test("one-time Asia/Karachi reminders survive a post-due sync and dispatch", async () => {
+  const createdAt = new Date("2026-01-01T05:50:00.000Z");
+  const syncedAt = new Date("2026-01-01T06:00:00.000Z");
+  const dispatchAt = new Date("2026-01-01T06:01:00.000Z");
+  const reminder = makeReminder({ date: "2026-01-01", time: "10:58", times: ["10:58"] });
+  const makeOccurrences = (now) => getReminderEvents(
+    [reminder],
+    "Asia/Karachi",
+    Temporal.Instant.from(now.toISOString()),
+  ).map((event) => ({ ...event, scheduledAt: new Date(event.scheduledAt).toISOString() }));
+  const initialState = buildSubscriptionState({
+    subscription,
+    timeZone: "Asia/Karachi",
+    reminderRules: [reminder],
+    occurrences: makeOccurrences(createdAt),
+  }, null, createdAt);
+  assert.equal(initialState.events[0].scheduledAt, "2026-01-01T05:58:00.000Z");
+
+  const syncedState = buildSubscriptionState({
+    subscription,
+    timeZone: "Asia/Karachi",
+    reminderRules: [reminder],
+    occurrences: makeOccurrences(syncedAt),
+  }, initialState, syncedAt);
+  const completedState = buildSubscriptionState({
+    subscription,
+    timeZone: "Asia/Karachi",
+    reminderRules: [{ ...reminder, completed: true }],
+    occurrences: [],
+  }, initialState, syncedAt);
+  assert.equal(syncedState.events.length, 1);
+  assert.equal(completedState.events.length, 0);
+
+  const previous = {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+    subject: process.env.VAPID_SUBJECT,
+  };
+  const vapidKeys = webpush.generateVAPIDKeys();
+  process.env.VAPID_PUBLIC_KEY = vapidKeys.publicKey;
+  process.env.VAPID_PRIVATE_KEY = vapidKeys.privateKey;
+  process.env.VAPID_SUBJECT = "mailto:test@example.com";
+  const key = "subscriptions/test";
+  const values = new Map([[key, syncedState]]);
+  const store = {
+    async *list() { yield { blobs: [{ key }] }; },
+    async getWithMetadata(blobKey) {
+      return values.has(blobKey) ? { data: structuredClone(values.get(blobKey)), etag: "v1" } : null;
+    },
+    async setJSON(blobKey, value) {
+      values.set(blobKey, structuredClone(value));
+      return { modified: true };
+    },
+    async delete(blobKey) { values.delete(blobKey); },
+  };
+  const sent = [];
+  try {
+    const summary = await dispatchDueNotifications(dispatchAt, {
+      store,
+      sendNotification: async (...args) => { sent.push(args); },
+    });
+    assert.deepEqual(summary, { subscriptions: 1, sent: 1, expired: 0, failed: 0 });
+    assert.equal(JSON.parse(sent[0][1]).id, initialState.events[0].id);
+  } finally {
+    if (previous.publicKey === undefined) delete process.env.VAPID_PUBLIC_KEY;
+    else process.env.VAPID_PUBLIC_KEY = previous.publicKey;
+    if (previous.privateKey === undefined) delete process.env.VAPID_PRIVATE_KEY;
+    else process.env.VAPID_PRIVATE_KEY = previous.privateKey;
+    if (previous.subject === undefined) delete process.env.VAPID_SUBJECT;
+    else process.env.VAPID_SUBJECT = previous.subject;
+  }
+});
+
 test("snooze creates a separate UTC delivery without mutating reminder recurrence", () => {
   const reminder = makeReminder({ repeat: "weekly", interval: 2 });
   const original = structuredClone(reminder);

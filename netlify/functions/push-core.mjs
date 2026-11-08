@@ -5,6 +5,7 @@ import { Temporal } from "@js-temporal/polyfill";
 const STORE_NAME = "daymark-web-push";
 const SUBSCRIPTION_PREFIX = "subscriptions/";
 const SCHEDULE_DAYS = 45;
+export const EVENT_EXPIRY_MS = 2 * 60 * 60_000;
 const MAX_REMINDERS = 500;
 const MAX_EVENTS = 5_000;
 
@@ -191,19 +192,25 @@ export function buildSubscriptionState(input, previous = null, now = new Date())
     .filter((event) => Date.parse(event.scheduledAt) > now.getTime())
     .sort((left, right) => Date.parse(left.scheduledAt) - Date.parse(right.scheduledAt));
   const previousEvents = new Map((previous?.events || []).map((event) => [event.id, event]));
-  const events = futureEvents.map((event) => ({
-    ...event,
-    status: previousEvents.get(event.id)?.status === "sent"
-      || (previousEvents.get(event.id)?.status === "processing"
-        && Date.parse(previousEvents.get(event.id)?.leaseUntil || "") > now.getTime())
-      ? previousEvents.get(event.id).status
-      : "pending",
-    attempts: previousEvents.get(event.id)?.attempts || 0,
-    ...(previousEvents.get(event.id)?.status === "processing"
-      && Date.parse(previousEvents.get(event.id)?.leaseUntil || "") > now.getTime()
-      ? { claimId: previousEvents.get(event.id).claimId, leaseUntil: previousEvents.get(event.id).leaseUntil }
-      : {}),
-  }));
+  const dueEvents = (previous?.events || []).filter((event) => {
+    const scheduledAt = Date.parse(event.scheduledAt);
+    return event.status !== "sent"
+      && validIds.has(event.reminderId)
+      && scheduledAt <= now.getTime()
+      && scheduledAt >= now.getTime() - EVENT_EXPIRY_MS;
+  });
+  const events = [...futureEvents, ...dueEvents].map((event) => {
+    const previousEvent = previousEvents.get(event.id);
+    const processing = previousEvent?.status === "processing"
+      && Date.parse(previousEvent.leaseUntil || "") > now.getTime();
+    return {
+      ...event,
+      status: previousEvent?.status === "sent" ? "sent" : processing ? "processing" : "pending",
+      attempts: previousEvent?.attempts || 0,
+      claimId: processing ? previousEvent.claimId : undefined,
+      leaseUntil: processing ? previousEvent.leaseUntil : undefined,
+    };
+  });
   return {
     subscription,
     timeZone,
