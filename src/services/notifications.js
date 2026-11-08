@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { saveNotificationSchedule } from "./database";
 import { getOccurrences } from "../utils/dates";
+import { normalizeReminderForWebPush } from "../utils/pushSchedule";
 
 const ACTION_TYPE = "daymark-reminder";
 const MAX_PENDING = 60;
@@ -137,14 +138,7 @@ async function syncWebPush(reminders, settings, snoozes = []) {
   if (!subscription) return { scheduled: 0, subscriptionRequired: true };
 
   const now = new Date();
-  const reminderRules = reminders.map((reminder) => ({
-    ...reminder,
-    description: reminder.description || "",
-    times: reminder.times?.length ? reminder.times : [reminder.time || "09:00"],
-    repeat: reminder.repeat || "never",
-    interval: Number(reminder.interval) || 1,
-    weekdays: reminder.weekdays || [],
-  }));
+  const reminderRules = reminders.map(normalizeReminderForWebPush);
   const occurrences = reminderRules.flatMap((reminder) => getOccurrences(reminder, now, WEB_PUSH_DAYS_AHEAD)
     .map(({ date }) => ({
       id: `${reminder.id}:${date.getTime()}`,

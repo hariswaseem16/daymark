@@ -15,6 +15,23 @@ test("local Asia/Karachi reminder times serialize to UTC only once", () => {
   assert.equal(localReminder.toISOString(), "2025-12-31T20:00:00.000Z");
 });
 
+test("one-time and daily Asia/Karachi schedules handle an elapsed occurrence", () => {
+  const now = new Date("2026-01-01T06:00:00.000Z");
+  const oneTime = {
+    id: "one-time",
+    date: "2026-01-01",
+    time: "10:58",
+    times: ["10:58"],
+    repeat: "never",
+    completed: false,
+  };
+  const daily = { ...oneTime, id: "daily", repeat: "daily" };
+  assert.deepEqual(getOccurrences(oneTime, now), []);
+  const nextDailyOccurrence = getOccurrences(daily, now, 1);
+  assert.equal(nextDailyOccurrence.length, 1);
+  assert.equal(nextDailyOccurrence[0].date.toISOString(), "2026-01-02T05:58:00.000Z");
+});
+
 test("overdue checks compare a reminder's local date and time", () => {
   const now = new Date(2026, 3, 12, 15, 0);
   const reminder = (date, time, completed = false) => ({ date: toDateKey(date), time, completed });

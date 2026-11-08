@@ -13,7 +13,7 @@ export default function ReminderModal({ reminder, categories, categoryId, defaul
   } : {
     title: "", description: "", date: selectedDate || toDateKey(new Date()),
     time: defaultTime || "09:00", times: defaultTime || "09:00", categoryId: categoryId || categories[0]?.id || "personal",
-    priority: "medium", repeat: "never", interval: 1, weekdays: [],
+    priority: "medium", repeat: "never", interval: 1, weekdays: [], completed: false,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
