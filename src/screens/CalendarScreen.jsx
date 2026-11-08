@@ -41,6 +41,19 @@ export default function CalendarScreen({ reminders, categories, settings, onAdd,
     setMonth(new Date(next.getFullYear(), next.getMonth(), 1));
   };
   const monthLabel = month.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const calendarDays = displayDates.map((date) => {
+    const key = toDateKey(date);
+    const items = reminders.flatMap((reminder) => getReminderInstancesForDate(reminder, key));
+    const outside = view === "month" && date.getMonth() !== month.getMonth();
+    const today = key === todayKey;
+    return <button key={key} className={`calendar-day ${selected === key ? "selected" : ""} ${today ? "today" : ""} ${outside ? "outside" : ""}`}
+      aria-label={`${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}, ${items.length} reminders`}
+      aria-pressed={selected === key} onClick={() => setSelected(key)}>
+      <span className="day-number">{date.getDate()}</span>
+      <span className="day-dots">{items.slice(0, view === "month" ? 3 : 6).map((item) => <i key={item.id} className={item.completed ? "completed-dot" : ""} style={{ "--dot-color": categories.find((category) => category.id === item.categoryId)?.color || "#aaa6bd" }} />)}</span>
+      {view !== "month" && items.slice(0, 3).map((item) => <span className={`week-event ${item.completed ? "event-complete" : ""}`} key={item.id}>{item.time} · {item.title}</span>)}
+    </button>;
+  });
 
   return (
     <div className="page-content calendar-page">
@@ -57,22 +70,13 @@ export default function CalendarScreen({ reminders, categories, settings, onAdd,
 
       <div className={`calendar-layout ${view === "day" ? "day-calendar-layout" : ""}`}>
         <section className={`calendar-card calendar-${view}`}>
-          {view !== "day" && <div className="weekday-header">{adjustedWeekdays.map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>}
-          <div className={`calendar-grid calendar-grid-${view}`}>
-            {displayDates.map((date) => {
-              const key = toDateKey(date);
-              const items = reminders.flatMap((reminder) => getReminderInstancesForDate(reminder, key));
-              const outside = view === "month" && date.getMonth() !== month.getMonth();
-              const today = key === todayKey;
-              return <button key={key} className={`calendar-day ${selected === key ? "selected" : ""} ${today ? "today" : ""} ${outside ? "outside" : ""}`}
-                aria-label={`${date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}, ${items.length} reminders`}
-                aria-pressed={selected === key} onClick={() => setSelected(key)}>
-                <span className="day-number">{date.getDate()}</span>
-                <span className="day-dots">{items.slice(0, view === "month" ? 3 : 6).map((item) => <i key={item.id} className={item.completed ? "completed-dot" : ""} style={{ "--dot-color": categories.find((category) => category.id === item.categoryId)?.color || "#aaa6bd" }} />)}</span>
-                {view !== "month" && items.slice(0, 3).map((item) => <span className={`week-event ${item.completed ? "event-complete" : ""}`} key={item.id}>{item.time} · {item.title}</span>)}
-              </button>;
-            })}
-          </div>
+          {view === "week" ? <div className="calendar-week-scroll">
+            <div className="weekday-header">{adjustedWeekdays.map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>
+            <div className="calendar-grid calendar-grid-week">{calendarDays}</div>
+          </div> : <>
+            {view === "month" && <div className="weekday-header">{adjustedWeekdays.map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>}
+            <div className={`calendar-grid calendar-grid-${view}`}>{calendarDays}</div>
+          </>}
           {view === "month" && <div className="calendar-legend"><span><i className="legend-dot plum-dot" /> Reminder</span><span><i className="legend-dot sage-dot" /> Completed</span></div>}
         </section>
         <aside className="selected-day-card">
