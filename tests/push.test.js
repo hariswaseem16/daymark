@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createRequire } from "node:module";
 import { Temporal } from "@js-temporal/polyfill";
+import * as webpush from "web-push";
 import {
   buildSubscriptionState,
   expiredSubscriptionKey,
@@ -13,8 +13,6 @@ import { dispatchDueNotifications, isExpiredSubscriptionError } from "../netlify
 import { handler as pushApiHandler } from "../netlify/functions/push-api.mjs";
 import { createSnoozeEntry } from "../src/utils/snooze.js";
 
-const require = createRequire(import.meta.url);
-const webpush = require("web-push");
 const subscription = {
   endpoint: "https://push.example.test/subscription",
   keys: { p256dh: "public-key", auth: "auth-secret" },
@@ -35,6 +33,12 @@ function makeReminder(overrides = {}) {
     ...overrides,
   };
 }
+
+test("web-push ESM exports load for the scheduled dispatcher", async () => {
+  const module = await import("web-push");
+  assert.equal(typeof module.setVapidDetails, "function");
+  assert.equal(typeof module.sendNotification, "function");
+});
 
 test("Asia/Karachi local times convert to the correct UTC instant across midnight", () => {
   const reminder = makeReminder({ date: "2026-01-01", time: "01:00", times: ["01:00"] });
@@ -110,6 +114,64 @@ test("missing and expired push subscriptions are handled explicitly", () => {
   assert.equal(isExpiredSubscriptionError({ statusCode: 404 }), true);
   assert.equal(isExpiredSubscriptionError({ statusCode: 410 }), true);
   assert.equal(isExpiredSubscriptionError({ statusCode: 503 }), false);
+});
+
+test("dispatcher sends due notifications and marks them sent", async () => {
+  const previous = {
+    publicKey: process.env.VAPID_PUBLIC_KEY,
+    privateKey: process.env.VAPID_PRIVATE_KEY,
+    subject: process.env.VAPID_SUBJECT,
+  };
+  const vapidKeys = webpush.generateVAPIDKeys();
+  process.env.VAPID_PUBLIC_KEY = vapidKeys.publicKey;
+  process.env.VAPID_PRIVATE_KEY = vapidKeys.privateKey;
+  process.env.VAPID_SUBJECT = "mailto:test@example.com";
+  const now = new Date("2026-01-01T00:10:00.000Z");
+  const key = "subscriptions/test";
+  const state = {
+    subscription,
+    reminderRules: [],
+    timeZone: "Asia/Karachi",
+    events: [{
+      id: "due-1",
+      reminderId: "reminder-1",
+      title: "Test",
+      body: "Due",
+      scheduledAt: "2026-01-01T00:05:00.000Z",
+      status: "pending",
+      attempts: 0,
+    }],
+    refreshedAt: now.toISOString(),
+  };
+  const values = new Map([[key, state]]);
+  const store = {
+    async *list() { yield { blobs: [{ key }] }; },
+    async getWithMetadata(blobKey) {
+      return values.has(blobKey) ? { data: structuredClone(values.get(blobKey)), etag: "v1" } : null;
+    },
+    async setJSON(blobKey, value) {
+      values.set(blobKey, structuredClone(value));
+      return { modified: true };
+    },
+    async delete(blobKey) { values.delete(blobKey); },
+  };
+  const sent = [];
+  try {
+    const summary = await dispatchDueNotifications(now, {
+      store,
+      sendNotification: async (...args) => { sent.push(args); },
+    });
+    assert.deepEqual(summary, { subscriptions: 1, sent: 1, expired: 0, failed: 0 });
+    assert.equal(JSON.parse(sent[0][1]).id, "due-1");
+    assert.equal(values.get(key).events[0].status, "sent");
+  } finally {
+    if (previous.publicKey === undefined) delete process.env.VAPID_PUBLIC_KEY;
+    else process.env.VAPID_PUBLIC_KEY = previous.publicKey;
+    if (previous.privateKey === undefined) delete process.env.VAPID_PRIVATE_KEY;
+    else process.env.VAPID_PRIVATE_KEY = previous.privateKey;
+    if (previous.subject === undefined) delete process.env.VAPID_SUBJECT;
+    else process.env.VAPID_SUBJECT = previous.subject;
+  }
 });
 
 test("push API protects config and schedule operations with the bearer token", async () => {

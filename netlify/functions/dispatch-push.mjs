@@ -1,6 +1,6 @@
-import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
 import { Temporal } from "@js-temporal/polyfill";
+import * as webpush from "web-push";
 import {
   getPushStore,
   getReminderEvents,
@@ -11,8 +11,6 @@ import {
   updateState,
 } from "./push-core.mjs";
 
-const require = createRequire(import.meta.url);
-const webpush = require("web-push");
 const CLAIM_DURATION_MS = 2 * 60_000;
 const EVENT_EXPIRY_MS = 2 * 60 * 60_000;
 
