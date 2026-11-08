@@ -364,7 +364,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .toast-mark { width: 21px; height: 21px; display: grid; place-items: center; flex: 0 0 auto; border-radius: 50%; color: var(--sage); background: color-mix(in srgb, var(--sage) 12%, var(--surface)); }
 .toast-message > button { width: 25px; height: 25px; display: grid; place-items: center; margin-left: auto; border: 0; border-radius: 6px; color: var(--muted); background: transparent; cursor: pointer; }
 .toast-message > button:hover { background: var(--surface-soft); }
-.loading-screen, .error-screen { min-height: 100svh; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; padding: 24px; text-align: center; }
+.loading-screen, .error-screen { min-height: 100vh; min-height: 100svh; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 9px; padding: 24px; text-align: center; }
 .loading-screen > p { color: var(--muted); font-family: var(--font-display); font-size: 15px; font-style: italic; }
 .loading-mark, .error-sparkle { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 14px; color: var(--plum); background: var(--plum-pale); }
 .error-screen h1 { margin: 8px 0 0; color: var(--ink); font-family: var(--font-display); font-size: 30px; font-weight: 400; }
@@ -375,7 +375,7 @@ button { -webkit-tap-highlight-color: transparent; }
   .dashboard-grid { grid-template-columns: minmax(0, 1fr) 265px; }
 }
 
-@media (max-width: 1120px) and (min-width: 761px) {
+@media (max-width: 1120px) and (min-width: 761px) and (min-device-width: 761px) {
   .desktop-sidebar { width: 205px; padding-right: 13px; padding-left: 13px; }
   .main-panel { width: calc(100% - 205px); margin-left: 205px; padding-right: 25px; padding-left: 25px; }
   .dashboard-grid { grid-template-columns: minmax(0, 1fr) 210px; gap: 14px; }
@@ -384,12 +384,13 @@ button { -webkit-tap-highlight-color: transparent; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-device-width: 760px) {
   html, body, #root { min-height: 100%; }
-  html, body { width: 100%; overflow-x: clip; }
-  .app-shell { min-height: 100svh; min-height: 100dvh; display: block; padding-top: env(safe-area-inset-top); }
+  html, body { width: 100%; overflow-x: hidden; overflow-x: clip; }
+  .app-shell { min-height: 100vh; min-height: 100svh; min-height: 100dvh; display: block; padding-top: env(safe-area-inset-top); }
   .desktop-sidebar { display: none; }
-  .main-panel { width: 100%; min-height: 100svh; min-height: 100dvh; margin: 0; padding: 0 18px calc(118px + env(safe-area-inset-bottom)); }
+  .main-panel { width: 100%; min-height: 100vh; min-height: 100svh; min-height: 100dvh; margin: 0; padding: 0 18px calc(118px + env(safe-area-inset-bottom)); }
+  .mobile-tabbar { display: flex; }
   .topbar { min-width: 0; height: 56px; justify-content: space-between; gap: 8px; }
   .mobile-brand { display: flex; align-items: center; gap: 7px; }
   .mobile-brand, .topbar-actions { min-width: 0; }
@@ -552,7 +553,7 @@ button { -webkit-tap-highlight-color: transparent; }
   .danger-zone .settings-section-head { width: 100%; }
   .danger-zone .button-danger { min-height: 44px; margin-left: 43px; white-space: normal; }
   .modal-backdrop { align-items: flex-end; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
-  .reminder-modal { width: 100%; max-width: 100%; max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; padding: 18px 16px calc(15px + env(safe-area-inset-bottom)); border-radius: 17px 17px 0 0; }
+  .reminder-modal { width: 100%; max-width: 100%; max-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; padding: 18px 16px calc(15px + env(safe-area-inset-bottom)); border-radius: 17px 17px 0 0; }
   .modal-heading { position: sticky; top: -18px; z-index: 1; padding: 8px 0 10px; background: var(--surface); }
   .reminder-modal form { gap: 14px; }
   .field-label { min-width: 0; gap: 7px; font-size: 11px; line-height: 1.35; }
@@ -587,7 +588,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 @media (display-mode: standalone) {
-  html, body, #root, .app-shell { min-height: 100dvh; }
+  html, body, #root, .app-shell { min-height: 100vh; min-height: 100dvh; }
   body { overscroll-behavior-y: none; }
 }
 
