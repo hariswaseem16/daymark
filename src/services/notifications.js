@@ -13,15 +13,26 @@ function isIOSHomeScreenApp() {
     || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   const standalone = navigator.standalone === true
     || window.matchMedia("(display-mode: standalone)").matches;
+  console.log("[Daymark Push Debug] isIOSHomeScreenApp: ios=", ios, "standalone=", standalone, "result=", ios && standalone);
   return ios && standalone;
 }
 
 function webPushAvailability() {
-  if (!("Notification" in window) || !("PushManager" in window) || !("serviceWorker" in navigator)
-    || !window.isSecureContext) return "unsupported";
+  const hasNotification = "Notification" in window;
+  const hasPushManager = "PushManager" in window;
+  const hasServiceWorker = "serviceWorker" in navigator;
+  const isSecure = window.isSecureContext;
+  console.log("[Daymark Push Debug] webPushAvailability checks: Notification=", hasNotification, "PushManager=", hasPushManager, "serviceWorker=", hasServiceWorker, "isSecureContext=", isSecure);
+  if (!hasNotification || !hasPushManager || !hasServiceWorker || !isSecure) {
+    console.log("[Daymark Push Debug] webPushAvailability result: unsupported");
+    return "unsupported";
+  }
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent)
     || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  return ios && !isIOSHomeScreenApp() ? "install-required" : "available";
+  const standalone = isIOSHomeScreenApp();
+  const result = ios && !standalone ? "install-required" : "available";
+  console.log("[Daymark Push Debug] webPushAvailability result: ", result, "ios=", ios, "standalone=", standalone);
+  return result;
 }
 
 function getPushServerUrl(settings) {
@@ -116,22 +127,45 @@ async function postPushServer(settings, body) {
 }
 
 async function getWebPushSubscription(settings, create = false) {
-  if (!("serviceWorker" in navigator) || !window.isSecureContext) return null;
-  if (create && (webPushAvailability() !== "available" || Notification.permission !== "granted")) return null;
+  console.log("[Daymark Push Debug] getWebPushSubscription: create=", create, "serviceWorker in navigator=", "serviceWorker" in navigator, "isSecureContext=", window.isSecureContext);
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) {
+    console.log("[Daymark Push Debug] getWebPushSubscription: returning null - no service worker or insecure context");
+    return null;
+  }
+  if (create && (webPushAvailability() !== "available" || Notification.permission !== "granted")) {
+    console.log("[Daymark Push Debug] getWebPushSubscription: returning null - availability=", webPushAvailability(), "permission=", Notification.permission);
+    return null;
+  }
   try {
+    console.log("[Daymark Push Debug] getWebPushSubscription: awaiting navigator.serviceWorker.ready");
     const registration = await navigator.serviceWorker.ready;
+    console.log("[Daymark Push Debug] getWebPushSubscription: service worker ready, scope=", registration.scope);
     const pushManager = registration.pushManager;
-    if (!pushManager || typeof pushManager.getSubscription !== "function") return null;
+    console.log("[Daymark Push Debug] getWebPushSubscription: pushManager exists=", !!pushManager, "getSubscription is function=", typeof pushManager?.getSubscription === "function");
+    if (!pushManager || typeof pushManager.getSubscription !== "function") {
+      console.log("[Daymark Push Debug] getWebPushSubscription: returning null - no pushManager or getSubscription");
+      return null;
+    }
     let subscription = await pushManager.getSubscription();
+    console.log("[Daymark Push Debug] getWebPushSubscription: existing subscription=", subscription ? "yes (endpoint=" + (subscription.endpoint || "").slice(0, 50) + "..." : "no");
     if (!subscription && create) {
+      console.log("[Daymark Push Debug] getWebPushSubscription: fetching VAPID config from server");
       const config = await getPushServerConfig(settings);
-      subscription = await pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: decodeVapidKey(config.vapidPublicKey),
-      });
+      console.log("[Daymark Push Debug] getWebPushSubscription: VAPID config received, calling pushManager.subscribe()");
+      try {
+        subscription = await pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: decodeVapidKey(config.vapidPublicKey),
+        });
+        console.log("[Daymark Push Debug] getWebPushSubscription: pushManager.subscribe() SUCCESS, endpoint=", (subscription.endpoint || "").slice(0, 50) + "...");
+      } catch (subscribeError) {
+        console.log("[Daymark Push Debug] getWebPushSubscription: pushManager.subscribe() ERROR: ", subscribeError);
+        throw subscribeError;
+      }
     }
     return subscription;
   } catch (error) {
+    console.log("[Daymark Push Debug] getWebPushSubscription catch: ", error);
     throw new Error(normalizeNotificationErrorMessage(error));
   }
 }
@@ -221,43 +255,62 @@ export function isNativeNotificationPlatform() {
 export async function getNotificationPermission() {
   if (Capacitor.isNativePlatform()) {
     const result = await LocalNotifications.checkPermissions();
+    console.log("[Daymark Push Debug] getNotificationPermission (native): ", result.display);
     return result.display;
   }
   const availability = webPushAvailability();
-  return availability === "available" ? Notification.permission : availability;
+  const permission = availability === "available" ? Notification.permission : availability;
+  console.log("[Daymark Push Debug] getNotificationPermission (web): availability=", availability, "Notification.permission=", Notification.permission, "result=", permission);
+  return permission;
 }
 
 export async function requestNotificationPermission() {
   if (Capacitor.isNativePlatform()) {
     const result = await LocalNotifications.requestPermissions();
+    console.log("[Daymark Push Debug] requestNotificationPermission (native): ", result.display);
     return result.display;
   }
   const availability = webPushAvailability();
+  console.log("[Daymark Push Debug] requestNotificationPermission (web): availability=", availability);
   if (availability === "install-required") {
+    console.log("[Daymark Push Debug] requestNotificationPermission: throwing install-required");
     throw new Error("On iPhone, add Daymark to your Home Screen and open it there before enabling Web Push.");
   }
   if (availability !== "available") {
+    console.log("[Daymark Push Debug] requestNotificationPermission: throwing unavailable");
     throw new Error("Web Push is unavailable in this browser or connection.");
   }
   try {
-    return await Notification.requestPermission();
+    const result = await Notification.requestPermission();
+    console.log("[Daymark Push Debug] requestNotificationPermission result: ", result);
+    return result;
   } catch (error) {
+    console.log("[Daymark Push Debug] requestNotificationPermission error: ", error);
     throw new Error(normalizeNotificationErrorMessage(error));
   }
 }
 
 export async function subscribeToWebPush(settings) {
   if (Capacitor.isNativePlatform()) return null;
+  console.log("[Daymark Push Debug] subscribeToWebPush: starting, Notification.permission=", Notification.permission);
   try {
+    console.log("[Daymark Push Debug] subscribeToWebPush: validating push server URL");
     getPushServerUrl(settings);
+    console.log("[Daymark Push Debug] subscribeToWebPush: push server URL valid");
+    console.log("[Daymark Push Debug] subscribeToWebPush: validating push API token");
     getPushApiToken(settings);
+    console.log("[Daymark Push Debug] subscribeToWebPush: push API token present");
     if (Notification.permission !== "granted") {
+      console.log("[Daymark Push Debug] subscribeToWebPush: throwing permission not granted");
       throw new Error("Allow notifications in the browser before enabling Web Push.");
     }
+    console.log("[Daymark Push Debug] subscribeToWebPush: calling getWebPushSubscription(create=true)");
     const subscription = await getWebPushSubscription(settings, true);
+    console.log("[Daymark Push Debug] subscribeToWebPush: getWebPushSubscription result=", subscription ? "subscription exists" : "null");
     if (!subscription) throw new Error("The browser could not create a Web Push subscription.");
     return subscription;
   } catch (error) {
+    console.log("[Daymark Push Debug] subscribeToWebPush error: ", error);
     throw new Error(normalizeNotificationErrorMessage(error));
   }
 }

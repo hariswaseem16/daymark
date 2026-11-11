@@ -185,6 +185,7 @@ function App() {
     try {
       const status = await requestNotificationPermission();
       setPermission(status);
+      console.log("[Daymark Push Debug] scheduleAfterPermission: status=", status, "isNative=", isNativeNotificationPlatform(), "data exists=", !!data);
       if (status === "granted" && data) {
         if (!isNativeNotificationPlatform()) await subscribeToWebPush(data.settings);
         else await registerNotificationActions();
