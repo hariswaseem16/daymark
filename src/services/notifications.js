@@ -44,6 +44,26 @@ function getPushApiToken(settings) {
   return token;
 }
 
+export function normalizeNotificationErrorMessage(error) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const normalized = message.trim();
+  if (!normalized) return "Notifications could not be enabled right now.";
+  const lower = normalized.toLowerCase();
+  if (lower.includes("internal service error") || lower.includes("failed due to an internal error")) {
+    return "This browser temporarily rejected notification permissions. Reload Daymark and try again. If you’re on iPhone, add the app to your Home Screen and use the installed version.";
+  }
+  if (lower.includes("secure context") || lower.includes("insecure context") || lower.includes("https")) {
+    return "Notifications require a secure HTTPS connection. Open Daymark over HTTPS and try again.";
+  }
+  if (lower.includes("not supported") || lower.includes("unsupported")) {
+    return "This browser does not support notifications.";
+  }
+  if (lower.includes("denied") || lower.includes("permission")) {
+    return "Notifications were blocked. Allow them in the browser or device settings, then try again.";
+  }
+  return normalized;
+}
+
 async function getPushServerConfig(settings) {
   const response = await fetch(getPushServerUrl(settings), {
     headers: { Authorization: "Bearer " + getPushApiToken(settings) },
@@ -98,18 +118,22 @@ async function postPushServer(settings, body) {
 async function getWebPushSubscription(settings, create = false) {
   if (!("serviceWorker" in navigator) || !window.isSecureContext) return null;
   if (create && (webPushAvailability() !== "available" || Notification.permission !== "granted")) return null;
-  const registration = await navigator.serviceWorker.ready;
-  const pushManager = registration.pushManager;
-  if (!pushManager || typeof pushManager.getSubscription !== "function") return null;
-  let subscription = await pushManager.getSubscription();
-  if (!subscription && create) {
-    const config = await getPushServerConfig(settings);
-    subscription = await pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: decodeVapidKey(config.vapidPublicKey),
-    });
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    const pushManager = registration.pushManager;
+    if (!pushManager || typeof pushManager.getSubscription !== "function") return null;
+    let subscription = await pushManager.getSubscription();
+    if (!subscription && create) {
+      const config = await getPushServerConfig(settings);
+      subscription = await pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: decodeVapidKey(config.vapidPublicKey),
+      });
+    }
+    return subscription;
+  } catch (error) {
+    throw new Error(normalizeNotificationErrorMessage(error));
   }
-  return subscription;
 }
 
 async function syncWebPush(reminders, settings, snoozes = []) {
@@ -215,19 +239,27 @@ export async function requestNotificationPermission() {
   if (availability !== "available") {
     throw new Error("Web Push is unavailable in this browser or connection.");
   }
-  return Notification.requestPermission();
+  try {
+    return await Notification.requestPermission();
+  } catch (error) {
+    throw new Error(normalizeNotificationErrorMessage(error));
+  }
 }
 
 export async function subscribeToWebPush(settings) {
   if (Capacitor.isNativePlatform()) return null;
-  getPushServerUrl(settings);
-  getPushApiToken(settings);
-  if (Notification.permission !== "granted") {
-    throw new Error("Allow notifications in the browser before enabling Web Push.");
+  try {
+    getPushServerUrl(settings);
+    getPushApiToken(settings);
+    if (Notification.permission !== "granted") {
+      throw new Error("Allow notifications in the browser before enabling Web Push.");
+    }
+    const subscription = await getWebPushSubscription(settings, true);
+    if (!subscription) throw new Error("The browser could not create a Web Push subscription.");
+    return subscription;
+  } catch (error) {
+    throw new Error(normalizeNotificationErrorMessage(error));
   }
-  const subscription = await getWebPushSubscription(settings, true);
-  if (!subscription) throw new Error("The browser could not create a Web Push subscription.");
-  return subscription;
 }
 
 export async function registerNotificationActions() {

@@ -12,6 +12,7 @@ import {
 } from "../netlify/functions/push-core.mjs";
 import { dispatchDueNotifications, isExpiredSubscriptionError } from "../netlify/functions/dispatch-push.mjs";
 import { handler as pushApiHandler } from "../netlify/functions/push-api.mjs";
+import { normalizeNotificationErrorMessage } from "../src/services/notifications.js";
 import { normalizeReminderForWebPush } from "../src/utils/pushSchedule.js";
 import { createSnoozeEntry } from "../src/utils/snooze.js";
 
@@ -40,6 +41,11 @@ test("web-push ESM exports load for the scheduled dispatcher", async () => {
   const module = await import("web-push");
   assert.equal(typeof module.setVapidDetails, "function");
   assert.equal(typeof module.sendNotification, "function");
+});
+
+test("browser permission failures get clearer recovery guidance", () => {
+  const message = normalizeNotificationErrorMessage(new Error("Failed due to internal service error"));
+  assert.match(message, /reload|Home Screen|try again/i);
 });
 
 test("Asia/Karachi local times convert to the correct UTC instant across midnight", () => {

@@ -11,7 +11,7 @@ import RemindersScreen from "./screens/RemindersScreen";
 import SettingsScreen from "./screens/SettingsScreen";
 import ReminderModal from "./components/ReminderModal";
 import { clearDatabase, exportDatabase, importDatabase, initializeDatabase, saveDatabase } from "./services/database";
-import { addNotificationListener, getNotificationPermission, isNativeNotificationPlatform, registerNotificationActions, requestNotificationPermission, subscribeToWebPush, syncNotifications, triggerHaptic } from "./services/notifications";
+import { addNotificationListener, getNotificationPermission, isNativeNotificationPlatform, normalizeNotificationErrorMessage, registerNotificationActions, requestNotificationPermission, subscribeToWebPush, syncNotifications, triggerHaptic } from "./services/notifications";
 import { fromDateKey, getOccurrences, toDateKey } from "./utils/dates";
 import { createSnoozeEntry } from "./utils/snooze";
 
@@ -205,7 +205,7 @@ function App() {
         notify(status === "denied" ? "Notifications were declined. You can allow them in iPhone Settings." : "Notifications are not available.");
       }
     } catch (error) {
-      notify(`Couldn't enable notifications: ${error.message}`);
+      notify(`Couldn't enable notifications: ${normalizeNotificationErrorMessage(error)}`);
     }
   }, [commit, data, notify, updateSettings]);
 
